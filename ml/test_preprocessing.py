@@ -6,12 +6,14 @@ from preprocessing import (
     remove_high_missing_columns,
     identify_categorical_columns,
     remove_constant_columns,
-    encode_categorical_columns
+    encode_categorical_columns,
 )
 
 from feature_engineering import (
     extract_time_features,
-    extract_description_features
+    extract_description_features,
+    extract_location_features,
+    extract_business_name_features
 )
 
 from feature_engineering import extract_time_features
@@ -71,3 +73,16 @@ print("\nFeatures shape after description feature engineering:", X.shape)
 
 print("\nNew description features:")
 print(X[["description_length", "description_word_count"]].head())
+X = extract_location_features(X)
+
+print("\nFeatures shape after location feature engineering:", X.shape)
+
+print("\nNew location features:")
+print(X[["latitude", "longitude"]].head())
+X = extract_business_name_features(X)
+
+print("\nFeatures shape after business name feature engineering:", X.shape)
+
+print("\nNew business name feature:")
+print(X["business_name_match_present"].value_counts())
+
