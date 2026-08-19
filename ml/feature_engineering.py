@@ -19,3 +19,27 @@ def extract_time_features(X):
         X = X.drop(columns=["timestamp"])
 
     return X
+def extract_description_features(X):
+    """
+    Extract numerical features from transaction descriptions.
+    """
+
+    if "description" in X.columns:
+        X["description_length"] = (
+            X["description"]
+            .fillna("")
+            .astype(str)
+            .str.len()
+        )
+
+        X["description_word_count"] = (
+            X["description"]
+            .fillna("")
+            .astype(str)
+            .str.split()
+            .str.len()
+        )
+
+        X = X.drop(columns=["description"])
+
+    return X

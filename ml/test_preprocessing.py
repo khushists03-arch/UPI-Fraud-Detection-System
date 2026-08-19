@@ -9,6 +9,11 @@ from preprocessing import (
     encode_categorical_columns
 )
 
+from feature_engineering import (
+    extract_time_features,
+    extract_description_features
+)
+
 from feature_engineering import extract_time_features
 data_path = "data/fraud_dataset.csv"
 
@@ -60,3 +65,9 @@ print("\nFeatures shape after time feature engineering:", X.shape)
 
 print("\nNew time features:")
 print(X[["transaction_minute", "transaction_second"]].head())
+X = extract_description_features(X)
+
+print("\nFeatures shape after description feature engineering:", X.shape)
+
+print("\nNew description features:")
+print(X[["description_length", "description_word_count"]].head())
