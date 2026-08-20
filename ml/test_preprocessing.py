@@ -7,6 +7,7 @@ from preprocessing import (
     identify_categorical_columns,
     remove_constant_columns,
     encode_categorical_columns,
+    split_data
 )
 
 from feature_engineering import (
@@ -85,4 +86,19 @@ print("\nFeatures shape after business name feature engineering:", X.shape)
 
 print("\nNew business name feature:")
 print(X["business_name_match_present"].value_counts())
+
+
+X_train, X_test, y_train, y_test = split_data(X, y)
+
+print("\nTraining features shape:", X_train.shape)
+print("Testing features shape:", X_test.shape)
+
+print("\nTraining target shape:", y_train.shape)
+print("Testing target shape:", y_test.shape)
+
+print("\nTraining fraud distribution:")
+print(y_train.value_counts(normalize=True))
+
+print("\nTesting fraud distribution:")
+print(y_test.value_counts(normalize=True))
 
