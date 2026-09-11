@@ -1,56 +1,36 @@
 import os
 import sys
-import pandas as pd
+import numpy as np
 import joblib
 
-# --------------------------------------------------
-# Make ml folder available for imports
-# --------------------------------------------------
 
-ML_FOLDER = os.path.dirname(os.path.abspath(__file__))
+# ==========================================================
+# Make ml folder available for imports
+# ==========================================================
+
+ML_FOLDER = os.path.dirname(
+    os.path.abspath(__file__)
+)
 
 if ML_FOLDER not in sys.path:
     sys.path.insert(0, ML_FOLDER)
 
 
-# --------------------------------------------------
-# Project imports
-# --------------------------------------------------
+# ==========================================================
+# Import the SAME data preparation pipeline
+# ==========================================================
 
-from preprocessing import (
-    load_data,
-    separate_target,
-    remove_id_columns,
-    remove_high_missing_columns,
-    remove_constant_columns,
-    encode_categorical_columns
-)
-
-from feature_engineering import (
-    extract_time_features,
-    extract_description_features,
-    extract_location_features,
-    extract_business_name_features
-)
+from train_xgboost import prepare_data
 
 from sklearn.ensemble import IsolationForest
-from sklearn.metrics import (
-    classification_report,
-    confusion_matrix,
-    accuracy_score
-)
 
 
-# --------------------------------------------------
-# Paths
-# --------------------------------------------------
+# ==========================================================
+# Project paths
+# ==========================================================
 
-PROJECT_ROOT = os.path.dirname(ML_FOLDER)
-
-DATA_PATH = os.path.join(
-    PROJECT_ROOT,
-    "data",
-    "fraud_dataset.csv"
+PROJECT_ROOT = os.path.dirname(
+    ML_FOLDER
 )
 
 MODEL_FOLDER = os.path.join(
@@ -64,189 +44,111 @@ MODEL_PATH = os.path.join(
 )
 
 
-# --------------------------------------------------
-# Prepare data
-# --------------------------------------------------
-
-def prepare_data():
-
-    print("Loading dataset...")
-
-    if not os.path.exists(DATA_PATH):
-        raise FileNotFoundError(
-            f"Dataset not found at:\n{DATA_PATH}"
-        )
-
-    df = load_data(DATA_PATH)
-
-    print("Dataset shape:", df.shape)
-
-    # Separate features and target
-    X, y = separate_target(df)
-
-    print(
-        "Features shape after separating target:",
-        X.shape
-    )
-
-    # --------------------------------------------------
-    # Preprocessing
-    # --------------------------------------------------
-
-    X = remove_id_columns(X)
-
-    print(
-        "Features shape after removing ID columns:",
-        X.shape
-    )
-
-    X = remove_high_missing_columns(X)
-
-    print(
-        "Features shape after removing highly-missing columns:",
-        X.shape
-    )
-
-    X = remove_constant_columns(X)
-
-    print(
-        "Features shape after removing constant columns:",
-        X.shape
-    )
-
-    X = encode_categorical_columns(X)
-
-    print(
-        "Features shape after categorical encoding:",
-        X.shape
-    )
-
-    # --------------------------------------------------
-    # Feature engineering
-    # --------------------------------------------------
-
-    X = extract_time_features(X)
-
-    print(
-        "Features shape after time feature engineering:",
-        X.shape
-    )
-
-    X = extract_description_features(X)
-
-    print(
-        "Features shape after description feature engineering:",
-        X.shape
-    )
-
-    X = extract_location_features(X)
-
-    print(
-        "Features shape after location feature engineering:",
-        X.shape
-    )
-
-    X = extract_business_name_features(X)
-
-    print(
-        "Features shape after business-name feature engineering:",
-        X.shape
-    )
-
-    # --------------------------------------------------
-    # Handle remaining categorical columns
-    # --------------------------------------------------
-
-    remaining_categorical = X.select_dtypes(
-        include=["object", "category"]
-    ).columns.tolist()
-
-    if remaining_categorical:
-
-        print(
-            "\nRemaining categorical columns:",
-            remaining_categorical
-        )
-
-        X = pd.get_dummies(
-            X,
-            columns=remaining_categorical,
-            drop_first=False,
-            dtype=float
-        )
-
-        print(
-            "Features shape after final encoding:",
-            X.shape
-        )
-
-    # --------------------------------------------------
-    # Convert boolean columns to integers
-    # --------------------------------------------------
-
-    bool_columns = X.select_dtypes(
-        include=["bool"]
-    ).columns
-
-    if len(bool_columns) > 0:
-        X[bool_columns] = X[bool_columns].astype(int)
-
-    # --------------------------------------------------
-    # Make sure everything is numeric
-    # --------------------------------------------------
-
-    non_numeric = X.select_dtypes(
-        exclude=["number"]
-    ).columns.tolist()
-
-    if non_numeric:
-
-        print(
-            "\nNon-numeric columns found:",
-            non_numeric
-        )
-
-        X = pd.get_dummies(
-            X,
-            columns=non_numeric,
-            drop_first=False,
-            dtype=float
-        )
-
-    # Replace infinite values
-    X = X.replace(
-        [float("inf"), float("-inf")],
-        float("nan")
-    )
-
-    # Fill missing values
-    X = X.fillna(0)
-
-    print(
-        "\nFinal features shape:",
-        X.shape
-    )
-
-    print(
-        "All features numeric:",
-        all(
-            pd.api.types.is_numeric_dtype(dtype)
-            for dtype in X.dtypes
-        )
-    )
-
-    return X, y
-
-
-# --------------------------------------------------
+# ==========================================================
 # Train Isolation Forest
-# --------------------------------------------------
+# ==========================================================
 
 def train_isolation_forest():
 
-    X, y = prepare_data()
+    print("\n========================================")
+    print("   ISOLATION FOREST TRAINING")
+    print("========================================")
 
-    print("\nTraining Isolation Forest...")
+    print("\nPreparing data...")
+
+    # ------------------------------------------------------
+    # IMPORTANT
+    #
+    # prepare_data() may currently return:
+    #
+    #     X, y
+    #
+    # OR:
+    #
+    #     X, y, constant_columns
+    #
+    # We only need X and y here.
+    # ------------------------------------------------------
+
+    prepared_data = prepare_data()
+
+    X = prepared_data[0]
+    y = prepared_data[1]
+
+    print("\nData preparation completed.")
+
+    print(
+        "Final feature shape:",
+        X.shape
+    )
+
+    print(
+        "Number of transactions:",
+        X.shape[0]
+    )
+
+    print(
+        "Number of features:",
+        X.shape[1]
+    )
+
+
+    # ======================================================
+    # Verify that all features are numeric
+    # ======================================================
+
+    if not all(
+        np.issubdtype(
+            dtype,
+            np.number
+        )
+        for dtype in X.dtypes
+    ):
+
+        raise ValueError(
+            "Some features are not numeric."
+        )
+
+    print(
+        "All features numeric: True"
+    )
+
+
+    # ======================================================
+    # Convert DataFrame to NumPy
+    # ======================================================
+
+    X_numpy = X.to_numpy(
+        dtype=float
+    )
+
+
+    # ======================================================
+    # Check feature count
+    # ======================================================
+
+    feature_count = X_numpy.shape[1]
+
+    print(
+        "\nFeature count:",
+        feature_count
+    )
+
+
+    if feature_count <= 0:
+
+        raise ValueError(
+            "No features available for training."
+        )
+
+
+    # ======================================================
+    # Create Isolation Forest
+    # ======================================================
+
+    print(
+        "\nCreating Isolation Forest model..."
+    )
 
     model = IsolationForest(
         n_estimators=100,
@@ -255,110 +157,192 @@ def train_isolation_forest():
         n_jobs=-1
     )
 
-    # IMPORTANT:
-    # Isolation Forest is unsupervised.
-    # We train using X only, NOT y.
 
-    model.fit(X)
+    # ======================================================
+    # Train model
+    # ======================================================
 
     print(
-        "Isolation Forest training completed!"
+        "\nTraining Isolation Forest model..."
     )
 
-    # --------------------------------------------------
-    # Predictions
-    # --------------------------------------------------
+    model.fit(
+        X_numpy
+    )
 
-    predictions = model.predict(X)
+    print(
+        "\nIsolation Forest training completed successfully!"
+    )
+
+
+    # ======================================================
+    # Make predictions on training data
+    # ======================================================
+
+    print(
+        "\nChecking anomaly predictions..."
+    )
+
+    predictions = model.predict(
+        X_numpy
+    )
+
 
     # Isolation Forest:
+    #
     #  1  = normal
     # -1  = anomaly
+    #
 
-    anomaly_predictions = (
+    normal_count = np.sum(
+        predictions == 1
+    )
+
+    anomaly_count = np.sum(
         predictions == -1
-    ).astype(int)
+    )
+
 
     print(
-        "\nNumber of predicted anomalies:",
-        anomaly_predictions.sum()
+        "\n========================================"
     )
 
     print(
-        "Total transactions:",
-        len(anomaly_predictions)
-    )
-
-    # --------------------------------------------------
-    # Evaluation
-    # --------------------------------------------------
-
-    print(
-        "\n================================"
+        "ISOLATION FOREST RESULTS"
     )
 
     print(
-        "ISOLATION FOREST EVALUATION"
+        "========================================"
     )
 
     print(
-        "================================"
+        "Normal transactions:",
+        normal_count
     )
-
-    print("\nAccuracy:")
 
     print(
-        accuracy_score(
-            y,
-            anomaly_predictions
-        )
+        "Anomalous transactions:",
+        anomaly_count
     )
 
-    print("\nClassification Report:")
+
+    # ======================================================
+    # Convert predictions to project format
+    #
+    # 0 = Normal
+    # 1 = Fraud / Anomaly
+    # ======================================================
+
+    fraud_predictions = np.where(
+        predictions == -1,
+        1,
+        0
+    )
+
 
     print(
-        classification_report(
-            y,
-            anomaly_predictions,
-            zero_division=0
-        )
+        "\nProject-format anomaly count:",
+        np.sum(fraud_predictions == 1)
     )
 
-    print("\nConfusion Matrix:")
 
-    print(
-        confusion_matrix(
-            y,
-            anomaly_predictions
-        )
-    )
-
-    # --------------------------------------------------
-    # Save model
-    # --------------------------------------------------
+    # ======================================================
+    # Create models folder
+    # ======================================================
 
     os.makedirs(
         MODEL_FOLDER,
         exist_ok=True
     )
 
+
+    # ======================================================
+    # Save model
+    # ======================================================
+
     joblib.dump(
         model,
         MODEL_PATH
     )
 
+
     print(
-        "\nModel saved successfully at:"
+        "\n========================================"
     )
 
-    print(MODEL_PATH)
+    print(
+        "MODEL SAVED SUCCESSFULLY"
+    )
 
-    return model
+    print(
+        "========================================"
+    )
+
+    print(
+        MODEL_PATH
+    )
 
 
-# --------------------------------------------------
+    # ======================================================
+    # Verify model feature count
+    # ======================================================
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "FEATURE COUNT VERIFICATION"
+    )
+
+    print(
+        "========================================"
+    )
+
+    print(
+        "Training feature count:",
+        feature_count
+    )
+
+    print(
+        "Model expected feature count:",
+        model.n_features_in_
+    )
+
+
+    if (
+        feature_count
+        ==
+        model.n_features_in_
+    ):
+
+        print(
+            "Feature count verification: PASSED"
+        )
+
+    else:
+
+        raise ValueError(
+            "Feature count verification FAILED."
+        )
+
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "ISOLATION FOREST COMPLETE"
+    )
+
+    print(
+        "========================================"
+    )
+
+
+# ==========================================================
 # Main
-# --------------------------------------------------
+# ==========================================================
 
 if __name__ == "__main__":
 
