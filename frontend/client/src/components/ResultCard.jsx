@@ -1,15 +1,33 @@
 function ResultCard({ result }) {
-  if (!result) return null;
+  if (!result) {
+    return null;
+  }
+
+  const isFraud = result.prediction === "Fraud";
 
   return (
-    <div className={`result-card ${result.prediction === "Fraud" ? "fraud" : "safe"}`}>
+    <div
+      className={`result-card ${
+        isFraud ? "fraud" : "safe"
+      }`}
+    >
       <h2>
-        {result.prediction === "Fraud"
+        {isFraud
           ? "🔴 Fraud Detected"
           : "🟢 Safe Transaction"}
       </h2>
 
-      <p>Confidence: {result.confidence}%</p>
+      <p>
+        Confidence:{" "}
+        {Number(result.confidence).toFixed(1)}%
+      </p>
+
+      {result.fraudScore !== undefined && (
+        <p>
+          Fraud Score:{" "}
+          {Number(result.fraudScore).toFixed(1)}%
+        </p>
+      )}
     </div>
   );
 }

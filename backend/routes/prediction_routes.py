@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 
 from backend.services.fraud_service import FraudService
+from backend.utils.validators import validate_transaction
 
 
 prediction_bp = Blueprint(
@@ -19,45 +20,46 @@ def predict_transaction():
     Predict whether a UPI transaction is fraudulent.
     """
 
+    # ---------------------------------------------------------
+    # Read JSON request
+    # ---------------------------------------------------------
+
     data = request.get_json(silent=True)
 
-    if not data:
+    # ---------------------------------------------------------
+    # Validate transaction data
+    # ---------------------------------------------------------
+
+    is_valid, errors = validate_transaction(data)
+
+    if not is_valid:
         return jsonify({
-            "error": "Request body must contain JSON data."
+            "success": False,
+            "error": "Invalid transaction data.",
+            "details": errors
         }), 400
 
-    required_fields = [
-        "amount",
-        "merchant",
-        "transactionType",
-        "location",
-        "description"
-    ]
-
-    missing_fields = [
-        field
-        for field in required_fields
-        if field not in data
-    ]
-
-    if missing_fields:
-        return jsonify({
-            "error": "Missing required fields.",
-            "missing_fields": missing_fields
-        }), 400
+    # ---------------------------------------------------------
+    # Run fraud prediction
+    # ---------------------------------------------------------
 
     try:
         result = fraud_service.predict(data)
 
-        return jsonify(result), 200
+        return jsonify({
+            "success": True,
+            **result
+        }), 200
 
     except (ValueError, TypeError) as exc:
         return jsonify({
+            "success": False,
             "error": "Invalid transaction data.",
-            "details": str(exc)
+            "details": [str(exc)]
         }), 400
 
     except Exception:
         return jsonify({
+            "success": False,
             "error": "Prediction failed."
         }), 500

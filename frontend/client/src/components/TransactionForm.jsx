@@ -1,7 +1,5 @@
 import { useState } from "react";
-
 import ResultCard from "./ResultCard";
-
 
 function TransactionForm() {
   const [formData, setFormData] = useState({
@@ -16,14 +14,12 @@ function TransactionForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-
   const handleChange = (e) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
     });
   };
-
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -42,59 +38,62 @@ function TransactionForm() {
           },
           body: JSON.stringify({
             amount: Number(formData.amount),
-            merchant: formData.merchant,
+            merchant: formData.merchant.trim(),
             transactionType: formData.transactionType,
-            location: formData.location,
-            description: formData.description,
+            location: formData.location.trim(),
+            description: formData.description.trim(),
           }),
         }
       );
 
-
       const data = await response.json();
-
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Prediction request failed."
+          data.error || "Unable to process transaction."
         );
       }
 
+      if (!data.success) {
+        throw new Error(
+          data.error || "Prediction failed."
+        );
+      }
 
       setResult({
         prediction: data.prediction,
-        confidence: data.confidence * 100,
+        confidence: Number(data.confidence) * 100,
+        fraudScore: Number(data.fraud_score) * 100,
+        xgboost: data.xgboost,
+        isolationForest: data.isolation_forest,
       });
-
     } catch (err) {
+      console.error("Prediction error:", err);
+
       setError(
-        err.message || "Unable to connect to the fraud detection server."
+        err.message ||
+          "Unable to connect to the fraud detection server."
       );
     } finally {
       setLoading(false);
     }
   };
 
-
   return (
     <div className="form-container">
-
       <h2>Check a Transaction</h2>
 
-
       <form onSubmit={handleSubmit}>
-
         <input
           type="number"
           name="amount"
           placeholder="Amount (₹)"
           value={formData.amount}
           onChange={handleChange}
-          required
-          min="0"
+          min="0.01"
           step="0.01"
+          required
         />
-
 
         <input
           type="text"
@@ -104,7 +103,6 @@ function TransactionForm() {
           onChange={handleChange}
           required
         />
-
 
         <select
           name="transactionType"
@@ -118,23 +116,22 @@ function TransactionForm() {
           </option>
         </select>
 
-
         <input
           type="text"
           name="location"
           placeholder="Location"
           value={formData.location}
           onChange={handleChange}
+          required
         />
-
 
         <textarea
           name="description"
           placeholder="Transaction Description"
           value={formData.description}
           onChange={handleChange}
+          required
         />
-
 
         <button
           type="submit"
@@ -142,22 +139,17 @@ function TransactionForm() {
         >
           {loading ? "Checking..." : "Predict Fraud"}
         </button>
-
       </form>
 
-
       {error && (
-        <p className="error-message">
+        <div className="error-message">
           {error}
-        </p>
+        </div>
       )}
 
-
       <ResultCard result={result} />
-
     </div>
   );
 }
-
 
 export default TransactionForm;
