@@ -1,5 +1,7 @@
 import { useState } from "react";
+
 import ResultCard from "./ResultCard";
+
 
 function TransactionForm() {
   const [formData, setFormData] = useState({
@@ -14,12 +16,14 @@ function TransactionForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+
   const handleChange = (e) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
     });
   };
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -33,9 +37,11 @@ function TransactionForm() {
         "http://127.0.0.1:5000/api/predict",
         {
           method: "POST",
+
           headers: {
             "Content-Type": "application/json",
           },
+
           body: JSON.stringify({
             amount: Number(formData.amount),
             merchant: formData.merchant.trim(),
@@ -46,7 +52,9 @@ function TransactionForm() {
         }
       );
 
+
       const data = await response.json();
+
 
       if (!response.ok) {
         throw new Error(
@@ -54,19 +62,45 @@ function TransactionForm() {
         );
       }
 
+
       if (!data.success) {
         throw new Error(
           data.error || "Prediction failed."
         );
       }
 
+
+      /*
+       * The Flask backend returns confidence and fraud_score
+       * as decimal values between 0 and 1.
+       *
+       * Example:
+       *
+       * confidence = 0.999961
+       * fraud_score = 0.000039
+       *
+       * Convert them to percentages ONCE here.
+       */
+
+      const confidencePercentage =
+        Number(data.confidence) * 100;
+
+      const fraudScorePercentage =
+        Number(data.fraud_score) * 100;
+
+
       setResult({
         prediction: data.prediction,
-        confidence: Number(data.confidence) * 100,
-        fraudScore: Number(data.fraud_score) * 100,
+
+        confidence: confidencePercentage,
+
+        fraudScore: fraudScorePercentage,
+
         xgboost: data.xgboost,
+
         isolationForest: data.isolation_forest,
       });
+
     } catch (err) {
       console.error("Prediction error:", err);
 
@@ -74,16 +108,21 @@ function TransactionForm() {
         err.message ||
           "Unable to connect to the fraud detection server."
       );
+
     } finally {
       setLoading(false);
     }
   };
 
+
   return (
     <div className="form-container">
+
       <h2>Check a Transaction</h2>
 
+
       <form onSubmit={handleSubmit}>
+
         <input
           type="number"
           name="amount"
@@ -95,6 +134,7 @@ function TransactionForm() {
           required
         />
 
+
         <input
           type="text"
           name="merchant"
@@ -104,17 +144,25 @@ function TransactionForm() {
           required
         />
 
+
         <select
           name="transactionType"
           value={formData.transactionType}
           onChange={handleChange}
         >
-          <option value="Payment">Payment</option>
-          <option value="Transfer">Transfer</option>
+          <option value="Payment">
+            Payment
+          </option>
+
+          <option value="Transfer">
+            Transfer
+          </option>
+
           <option value="Request Money">
             Request Money
           </option>
         </select>
+
 
         <input
           type="text"
@@ -125,6 +173,7 @@ function TransactionForm() {
           required
         />
 
+
         <textarea
           name="description"
           placeholder="Transaction Description"
@@ -133,13 +182,18 @@ function TransactionForm() {
           required
         />
 
+
         <button
           type="submit"
           disabled={loading}
         >
-          {loading ? "Checking..." : "Predict Fraud"}
+          {loading
+            ? "Checking..."
+            : "Predict Fraud"}
         </button>
+
       </form>
+
 
       {error && (
         <div className="error-message">
@@ -147,9 +201,12 @@ function TransactionForm() {
         </div>
       )}
 
+
       <ResultCard result={result} />
+
     </div>
   );
 }
+
 
 export default TransactionForm;

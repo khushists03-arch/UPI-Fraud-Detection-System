@@ -18,8 +18,12 @@ class FraudService:
         """
         Predict whether a transaction is fraudulent.
 
-        Returns a dictionary containing the prediction,
-        confidence, and model-level results.
+        Returns a dictionary containing:
+        - final prediction
+        - confidence
+        - fraud score
+        - XGBoost result
+        - Isolation Forest result
         """
 
         # ---------------------------------------------------------
@@ -57,11 +61,8 @@ class FraudService:
         # ---------------------------------------------------------
         # Isolation Forest prediction
         #
-        # The feature order has already been verified to match
-        # the Isolation Forest training pipeline.
-        #
-        # We use the exact feature names stored by the trained
-        # model so scikit-learn does not produce a warning.
+        # Use the exact feature names stored by the trained
+        # Isolation Forest model.
         # ---------------------------------------------------------
 
         isolation_feature_names = (
@@ -82,12 +83,22 @@ class FraudService:
         is_anomaly = isolation_prediction == -1
 
         # ---------------------------------------------------------
-        # Combine model results
+        # Convert Isolation Forest result into anomaly score
+        #
+        # -1 = anomaly
+        #  1 = normal
         # ---------------------------------------------------------
 
         anomaly_score = 1.0 if is_anomaly else 0.0
 
-        fraud_score = (
+        # ---------------------------------------------------------
+        # Combine model results
+        #
+        # XGBoost       = 70%
+        # Isolation     = 30%
+        # ---------------------------------------------------------
+
+        raw_fraud_score = (
             0.70 * xgboost_probability
             + 0.30 * anomaly_score
         )
@@ -98,39 +109,54 @@ class FraudService:
 
         prediction = (
             "Fraud"
-            if fraud_score >= 0.50
+            if raw_fraud_score >= 0.50
             else "Safe"
         )
 
-        confidence = (
-            fraud_score
-            if prediction == "Fraud"
-            else 1.0 - fraud_score
-        )
+        # ---------------------------------------------------------
+        # Calculate confidence BEFORE rounding.
+        #
+        # For Safe:
+        # confidence = 1 - fraud score
+        #
+        # For Fraud:
+        # confidence = fraud score
+        # ---------------------------------------------------------
+
+        if prediction == "Fraud":
+            raw_confidence = raw_fraud_score
+        else:
+            raw_confidence = 1.0 - raw_fraud_score
 
         # ---------------------------------------------------------
-        # Return prediction result
+        # Return complete prediction response
         # ---------------------------------------------------------
 
         return {
             "prediction": prediction,
+
             "confidence": round(
-                confidence,
-                4
+                raw_confidence,
+                6
             ),
+
             "fraud_score": round(
-                fraud_score,
-                4
+                raw_fraud_score,
+                6
             ),
+
             "xgboost": {
                 "prediction": xgboost_prediction,
+
                 "fraud_probability": round(
                     xgboost_probability,
-                    4
+                    6
                 )
             },
+
             "isolation_forest": {
                 "is_anomaly": is_anomaly,
+
                 "prediction": isolation_prediction
             }
         }
