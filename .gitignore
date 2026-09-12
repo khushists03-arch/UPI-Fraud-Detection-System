@@ -7,7 +7,7 @@ __pycache__/
 *$py.class
 
 # Test/cache files
-.pytest_cache/
+.pytest_cache/s
 .coverage
 htmlcov/
 
