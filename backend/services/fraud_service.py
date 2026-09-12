@@ -1,4 +1,4 @@
-import numpy as np
+import pandas as pd
 
 from backend.services.model_service import ModelService
 from backend.utils.feature_builder import FeatureBuilder
@@ -57,16 +57,20 @@ class FraudService:
         # ---------------------------------------------------------
         # Isolation Forest prediction
         #
-        # Isolation Forest was trained with the same feature
-        # order but has a different set of feature-name metadata.
+        # The feature order has already been verified to match
+        # the Isolation Forest training pipeline.
         #
-        # Passing a NumPy array preserves feature order while
-        # avoiding a feature-name validation conflict.
+        # We use the exact feature names stored by the trained
+        # model so scikit-learn does not produce a warning.
         # ---------------------------------------------------------
 
-        isolation_input = np.asarray(
-            features,
-            dtype=float
+        isolation_feature_names = (
+            isolation_forest_model.feature_names_in_
+        )
+
+        isolation_input = pd.DataFrame(
+            features.to_numpy(),
+            columns=isolation_feature_names
         )
 
         isolation_prediction = int(
