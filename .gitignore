@@ -26,3 +26,8 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+# Local application database
+data/*.db
+
+# Local project archives
+*.zip

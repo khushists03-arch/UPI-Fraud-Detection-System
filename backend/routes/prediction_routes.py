@@ -1,3 +1,5 @@
+import logging
+
 from flask import Blueprint, jsonify, request
 
 from backend.services.fraud_service import FraudService
@@ -13,6 +15,8 @@ prediction_bp = Blueprint(
 
 fraud_service = FraudService()
 
+logger = logging.getLogger(__name__)
+
 
 @prediction_bp.post("/predict")
 def predict_transaction():
@@ -26,6 +30,10 @@ def predict_transaction():
 
     data = request.get_json(silent=True)
 
+    logger.info(
+        "Received fraud prediction request."
+    )
+
     # ---------------------------------------------------------
     # Validate transaction data
     # ---------------------------------------------------------
@@ -33,6 +41,11 @@ def predict_transaction():
     is_valid, errors = validate_transaction(data)
 
     if not is_valid:
+        logger.warning(
+            "Transaction validation failed: %s",
+            errors
+        )
+
         return jsonify({
             "success": False,
             "error": "Invalid transaction data.",
@@ -46,12 +59,22 @@ def predict_transaction():
     try:
         result = fraud_service.predict(data)
 
+        logger.info(
+            "Fraud prediction completed: %s",
+            result["prediction"]
+        )
+
         return jsonify({
             "success": True,
             **result
         }), 200
 
     except (ValueError, TypeError) as exc:
+        logger.warning(
+            "Invalid prediction input: %s",
+            exc
+        )
+
         return jsonify({
             "success": False,
             "error": "Invalid transaction data.",
@@ -59,6 +82,10 @@ def predict_transaction():
         }), 400
 
     except Exception:
+        logger.exception(
+            "Unexpected error during fraud prediction."
+        )
+
         return jsonify({
             "success": False,
             "error": "Prediction failed."
