@@ -1,35 +1,5 @@
 """
-GNN training pipeline for the UPI Fraud Detection System.
-
-Project-specific design:
-
-    fraud_dataset.csv
-            |
-            v
-    TransactionFeaturePreprocessor
-            |
-            v
-    Transaction node features
-            |
-            v
-    Transaction Graph
-            |
-            +-- shared user_id
-            +-- shared merchant_id
-            +-- shared device_id
-            |
-            v
-        2-layer GCN
-            |
-            +-- 64-dimensional embeddings
-            |
-            v
-      Genuine / Fraud
-
-Important:
-- is_fraud is the target and is NEVER used as an input feature.
-- user_id, merchant_id and device_id are used for graph construction.
-- Preprocessing is fitted only on the training split.
+Train the GNN for UPI Fraud Detection.
 """
 
 from pathlib import Path
@@ -50,7 +20,6 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-
 from sklearn.model_selection import train_test_split
 
 from gnn.preprocessing import TransactionFeaturePreprocessor
@@ -61,13 +30,9 @@ from gnn.graph_builder import (
 from gnn.gnn_model import GCNClassifier
 
 
-# ============================================================
-# PROJECT PATHS
-# ============================================================
-
+# Project paths
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# Normal location inside the GNN branch.
 DATA_PATH = (
     PROJECT_ROOT
     / "data"
@@ -75,8 +40,8 @@ DATA_PATH = (
     / "fraud_dataset.csv"
 )
 
-# Original project copy.
-ORIGINAL_PROJECT_DATA_PATH = (
+# Fallback dataset location
+ORIGINAL_DATA_PATH = (
     PROJECT_ROOT.parent
     / "UPI-Fraud-Detection-System"
     / "data"
@@ -86,172 +51,97 @@ ORIGINAL_PROJECT_DATA_PATH = (
 
 MODEL_DIR = PROJECT_ROOT / "models"
 
-MODEL_PATH = (
-    MODEL_DIR / "gnn_model.pt"
-)
-
-PREPROCESSOR_PATH = (
-    MODEL_DIR / "gnn_preprocessor.joblib"
-)
-
-REFERENCE_PATH = (
-    MODEL_DIR / "gnn_reference.csv"
-)
-
-EMBEDDINGS_PATH = (
-    MODEL_DIR / "gnn_embeddings.csv"
-)
-
-METRICS_PATH = (
-    MODEL_DIR / "gnn_metrics.json"
-)
+MODEL_PATH = MODEL_DIR / "gnn_model.pt"
+PREPROCESSOR_PATH = MODEL_DIR / "gnn_preprocessor.joblib"
+REFERENCE_PATH = MODEL_DIR / "gnn_reference.csv"
+EMBEDDINGS_PATH = MODEL_DIR / "gnn_embeddings.csv"
+METRICS_PATH = MODEL_DIR / "gnn_metrics.json"
 
 
-# ============================================================
-# GNN CONFIGURATION
-# ============================================================
-
-RANDOM_SEED = 42
-
+# GNN settings
+SEED = 42
 HIDDEN_DIM = 64
-
-NUM_CLASSES = 2
-
 DROPOUT = 0.35
-
 LEARNING_RATE = 0.01
-
 WEIGHT_DECAY = 5e-4
-
 MAX_EPOCHS = 40
-
 PATIENCE = 6
 
-VALIDATION_SIZE = 0.15
 
-TEST_SIZE = 0.15
+def set_seed():
+    """Make training results reproducible."""
 
-
-# ============================================================
-# RANDOM SEED
-# ============================================================
-
-def set_seed(seed: int = RANDOM_SEED) -> None:
-    """Set random seeds for reproducible training."""
-
-    random.seed(seed)
-
-    np.random.seed(seed)
-
-    torch.manual_seed(seed)
+    random.seed(SEED)
+    np.random.seed(SEED)
+    torch.manual_seed(SEED)
 
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+        torch.cuda.manual_seed_all(SEED)
 
 
-# ============================================================
-# FIND DATASET
-# ============================================================
-
-def get_dataset_path() -> Path:
-    """
-    Find the fraud dataset.
-
-    Priority:
-
-    1. GNN branch:
-       data/raw/fraud_dataset.csv
-
-    2. Original project:
-       ../UPI-Fraud-Detection-System/data/raw/fraud_dataset.csv
-    """
+def get_dataset_path():
+    """Find the fraud dataset."""
 
     if DATA_PATH.exists():
         return DATA_PATH
 
-    if ORIGINAL_PROJECT_DATA_PATH.exists():
-        return ORIGINAL_PROJECT_DATA_PATH
+    if ORIGINAL_DATA_PATH.exists():
+        return ORIGINAL_DATA_PATH
 
     raise FileNotFoundError(
-        "\nUPI fraud dataset was not found.\n\n"
-        f"Checked:\n"
-        f"1. {DATA_PATH}\n"
-        f"2. {ORIGINAL_PROJECT_DATA_PATH}\n\n"
-        "Expected file:\n"
-        "fraud_dataset.csv"
+        "fraud_dataset.csv was not found."
     )
 
 
-# ============================================================
-# METRICS
-# ============================================================
-
 def calculate_metrics(
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    fraud_probability: np.ndarray,
-) -> dict:
-    """Calculate fraud classification metrics."""
+    y_true,
+    y_pred,
+    fraud_probability,
+):
+    """Calculate model performance."""
 
-    result = {
-        "accuracy": float(
-            accuracy_score(
-                y_true,
-                y_pred,
-            )
+    metrics = {
+        "accuracy": accuracy_score(
+            y_true,
+            y_pred,
         ),
-        "precision": float(
-            precision_score(
-                y_true,
-                y_pred,
-                zero_division=0,
-            )
+        "precision": precision_score(
+            y_true,
+            y_pred,
+            zero_division=0,
         ),
-        "recall": float(
-            recall_score(
-                y_true,
-                y_pred,
-                zero_division=0,
-            )
+        "recall": recall_score(
+            y_true,
+            y_pred,
+            zero_division=0,
         ),
-        "f1": float(
-            f1_score(
-                y_true,
-                y_pred,
-                zero_division=0,
-            )
+        "f1": f1_score(
+            y_true,
+            y_pred,
+            zero_division=0,
         ),
     }
 
     if len(np.unique(y_true)) == 2:
-
-        result["roc_auc"] = float(
-            roc_auc_score(
-                y_true,
-                fraud_probability,
-            )
+        metrics["roc_auc"] = roc_auc_score(
+            y_true,
+            fraud_probability,
         )
-
     else:
+        metrics["roc_auc"] = None
 
-        result["roc_auc"] = None
-
-    return result
+    return metrics
 
 
-# ============================================================
-# MODEL EVALUATION
-# ============================================================
-
-def evaluate_model(
-    model: GCNClassifier,
-    features: torch.Tensor,
-    edge_index: torch.Tensor,
-    edge_weight: torch.Tensor,
-    labels: torch.Tensor,
-    mask: torch.Tensor,
+def evaluate(
+    model,
+    features,
+    edge_index,
+    edge_weight,
+    labels,
+    mask,
 ):
-    """Evaluate the GCN on selected transactions."""
+    """Evaluate the GNN on a selected data split."""
 
     model.eval()
 
@@ -273,17 +163,9 @@ def evaluate_model(
             dim=1,
         )
 
-    true_labels = (
-        labels[mask]
-        .cpu()
-        .numpy()
-    )
+    y_true = labels[mask].cpu().numpy()
 
-    predicted_labels = (
-        predictions[mask]
-        .cpu()
-        .numpy()
-    )
+    y_pred = predictions[mask].cpu().numpy()
 
     fraud_probability = (
         probabilities[mask, 1]
@@ -292,8 +174,8 @@ def evaluate_model(
     )
 
     metrics = calculate_metrics(
-        true_labels,
-        predicted_labels,
+        y_true,
+        y_pred,
         fraud_probability,
     )
 
@@ -305,22 +187,15 @@ def evaluate_model(
     )
 
 
-# ============================================================
-# MAIN TRAINING FUNCTION
-# ============================================================
-
-def main() -> None:
+def main():
 
     set_seed()
 
-    print("=" * 70)
+    print("=" * 60)
     print("UPI FRAUD DETECTION - GNN TRAINING")
-    print("=" * 70)
+    print("=" * 60)
 
-    # --------------------------------------------------------
-    # DEVICE
-    # --------------------------------------------------------
-
+    # Select CPU or GPU.
     device = torch.device(
         "cuda"
         if torch.cuda.is_available()
@@ -329,28 +204,16 @@ def main() -> None:
 
     print(f"\nDevice: {device}")
 
-    # --------------------------------------------------------
-    # DATASET
-    # --------------------------------------------------------
-
+    # Load dataset.
     dataset_path = get_dataset_path()
 
-    print(
-        f"\nDataset:\n{dataset_path}"
-    )
+    print(f"\nDataset:\n{dataset_path}")
 
-    df = pd.read_csv(
-        dataset_path
-    )
+    df = pd.read_csv(dataset_path)
 
-    print(
-        f"\nDataset shape: {df.shape}"
-    )
+    print(f"Dataset shape: {df.shape}")
 
-    # --------------------------------------------------------
-    # REQUIRED PROJECT COLUMNS
-    # --------------------------------------------------------
-
+    # Required project columns.
     required_columns = [
         "is_fraud",
         "user_id",
@@ -358,93 +221,50 @@ def main() -> None:
         "device_id",
     ]
 
-    missing_columns = [
+    missing = [
         column
         for column in required_columns
         if column not in df.columns
     ]
 
-    if missing_columns:
-
+    if missing:
         raise ValueError(
-            "Required project columns are missing:\n"
-            + "\n".join(
-                missing_columns
-            )
+            "Missing columns: "
+            + ", ".join(missing)
         )
 
-    # --------------------------------------------------------
-    # TARGET
-    # --------------------------------------------------------
-
+    # Prepare target.
     df = df.dropna(
         subset=["is_fraud"]
-    ).reset_index(
-        drop=True
-    )
+    ).reset_index(drop=True)
 
-    df["is_fraud"] = (
-        pd.to_numeric(
-            df["is_fraud"],
-            errors="raise",
-        )
-        .astype(int)
-    )
+    df["is_fraud"] = pd.to_numeric(
+        df["is_fraud"],
+        errors="raise",
+    ).astype(int)
 
     labels_np = df[
         "is_fraud"
-    ].to_numpy(
-        dtype=np.int64
+    ].to_numpy(dtype=np.int64)
+
+    # --------------------------------------------------
+    # Split data into training, validation and testing.
+    # --------------------------------------------------
+
+    indices = np.arange(len(df))
+
+    train_indices, temp_indices = train_test_split(
+        indices,
+        test_size=0.30,
+        random_state=SEED,
+        stratify=labels_np,
     )
 
-    print("\nFraud distribution:")
-
-    print(
-        df["is_fraud"]
-        .value_counts()
-        .sort_index()
-        .to_string()
-    )
-
-    # --------------------------------------------------------
-    # TRAIN / VALIDATION / TEST
-    # --------------------------------------------------------
-
-    all_indices = np.arange(
-        len(df)
-    )
-
-    train_indices, temporary_indices = (
-        train_test_split(
-            all_indices,
-            test_size=(
-                VALIDATION_SIZE
-                + TEST_SIZE
-            ),
-            random_state=RANDOM_SEED,
-            stratify=labels_np,
-        )
-    )
-
-    validation_ratio = (
-        VALIDATION_SIZE
-        / (
-            VALIDATION_SIZE
-            + TEST_SIZE
-        )
-    )
-
-    validation_indices, test_indices = (
-        train_test_split(
-            temporary_indices,
-            test_size=(
-                1.0 - validation_ratio
-            ),
-            random_state=RANDOM_SEED,
-            stratify=labels_np[
-                temporary_indices
-            ],
-        )
+    validation_indices, test_indices = train_test_split(
+        temp_indices,
+        test_size=0.50,
+        random_state=SEED,
+        stratify=labels_np[temp_indices],
     )
 
     num_nodes = len(df)
@@ -464,66 +284,35 @@ def main() -> None:
         dtype=torch.bool,
     )
 
-    train_mask[
-        train_indices
-    ] = True
-
-    validation_mask[
-        validation_indices
-    ] = True
-
-    test_mask[
-        test_indices
-    ] = True
+    train_mask[train_indices] = True
+    validation_mask[validation_indices] = True
+    test_mask[test_indices] = True
 
     print("\nData split:")
+    print(f"Training:   {len(train_indices)}")
+    print(f"Validation: {len(validation_indices)}")
+    print(f"Testing:    {len(test_indices)}")
 
-    print(
-        f"Training:   "
-        f"{len(train_indices)}"
-    )
+    # --------------------------------------------------
+    # Preprocessing
+    # --------------------------------------------------
 
-    print(
-        f"Validation: "
-        f"{len(validation_indices)}"
-    )
-
-    print(
-        f"Testing:    "
-        f"{len(test_indices)}"
-    )
-
-    # ========================================================
-    # PREPROCESSING
-    # ========================================================
-
-    print("\n" + "-" * 70)
-    print("FEATURE PREPROCESSING")
-    print("-" * 70)
+    print("\nPreparing features...")
 
     preprocessor = (
         TransactionFeaturePreprocessor()
     )
 
-    # IMPORTANT:
-    # Fit ONLY using training transactions.
+    # Fit only on training data.
     preprocessor.fit(
         df.iloc[train_indices]
     )
 
     # Transform all transactions.
-    features_np = (
-        preprocessor.transform(df)
-    )
+    features_np = preprocessor.transform(df)
 
     print(
-        f"Feature matrix: "
-        f"{features_np.shape}"
-    )
-
-    print(
-        f"GNN input features: "
-        f"{preprocessor.input_dim}"
+        f"Feature matrix: {features_np.shape}"
     )
 
     features = torch.tensor(
@@ -531,21 +320,17 @@ def main() -> None:
         dtype=torch.float32,
     )
 
-    # ========================================================
-    # GRAPH
-    # ========================================================
+    # --------------------------------------------------
+    # Build transaction graph.
+    # --------------------------------------------------
 
-    print("\n" + "-" * 70)
-    print("TRANSACTION GRAPH")
-    print("-" * 70)
+    print("\nBuilding transaction graph...")
 
     (
         edge_index,
         edge_weight,
         graph_stats,
-    ) = build_transaction_graph(
-        df
-    )
+    ) = build_transaction_graph(df)
 
     print(
         f"Nodes: "
@@ -553,35 +338,24 @@ def main() -> None:
     )
 
     print(
-        f"Unique relationships: "
+        f"Relationships: "
         f"{graph_stats['num_unique_undirected_relationships']}"
     )
 
     print(
-        f"Edges including self-loops: "
+        f"Edges: "
         f"{graph_stats['num_edges_including_self_loops']}"
     )
 
-    print(
-        f"Graph entities: "
-        f"{graph_stats['entity_columns_used']}"
+    # Normalize graph weights.
+    edge_weight = normalize_edge_weights(
+        edge_index,
+        edge_weight,
+        num_nodes,
     )
 
-    normalized_edge_weight = (
-        normalize_edge_weights(
-            edge_index,
-            edge_weight,
-            num_nodes,
-        )
-    )
-
-    # ========================================================
-    # MOVE TO DEVICE
-    # ========================================================
-
-    features = features.to(
-        device
-    )
+    # Move data to device.
+    features = features.to(device)
 
     labels = torch.tensor(
         labels_np,
@@ -589,52 +363,32 @@ def main() -> None:
         device=device,
     )
 
-    edge_index = edge_index.to(
-        device
-    )
+    edge_index = edge_index.to(device)
+    edge_weight = edge_weight.to(device)
 
-    normalized_edge_weight = (
-        normalized_edge_weight.to(
-            device
-        )
-    )
+    train_mask = train_mask.to(device)
+    validation_mask = validation_mask.to(device)
+    test_mask = test_mask.to(device)
 
-    train_mask = train_mask.to(
-        device
-    )
-
-    validation_mask = (
-        validation_mask.to(device)
-    )
-
-    test_mask = test_mask.to(
-        device
-    )
-
-    # ========================================================
-    # CREATE GCN
-    # ========================================================
+    # --------------------------------------------------
+    # Create GNN.
+    # --------------------------------------------------
 
     model = GCNClassifier(
         input_dim=preprocessor.input_dim,
         hidden_dim=HIDDEN_DIM,
-        num_classes=NUM_CLASSES,
+        num_classes=2,
         dropout=DROPOUT,
     ).to(device)
 
-    print("\n" + "-" * 70)
-    print("GCN MODEL")
-    print("-" * 70)
-
+    print("\nGNN model:")
     print(model)
 
-    # ========================================================
-    # CLASS WEIGHTS
-    # ========================================================
+    # --------------------------------------------------
+    # Give more weight to the fraud class.
+    # --------------------------------------------------
 
-    training_labels = labels[
-        train_mask
-    ]
+    training_labels = labels[train_mask]
 
     class_counts = torch.bincount(
         training_labels,
@@ -644,28 +398,10 @@ def main() -> None:
     class_weights = (
         class_counts.sum()
         / (
-            2.0
-            * class_counts.clamp_min(
-                1.0
-            )
+            2
+            * class_counts.clamp_min(1)
         )
     )
-
-    print("\nTraining classes:")
-
-    print(
-        f"Genuine: "
-        f"{int(class_counts[0])}"
-    )
-
-    print(
-        f"Fraud:   "
-        f"{int(class_counts[1])}"
-    )
-
-    # ========================================================
-    # LOSS + OPTIMIZER
-    # ========================================================
 
     criterion = nn.CrossEntropyLoss(
         weight=class_weights
@@ -677,26 +413,18 @@ def main() -> None:
         weight_decay=WEIGHT_DECAY,
     )
 
-    # ========================================================
-    # TRAINING
-    # ========================================================
+    # --------------------------------------------------
+    # Train the GNN.
+    # --------------------------------------------------
 
-    print("\n" + "=" * 70)
-    print("GNN TRAINING")
-    print("=" * 70)
-
-    best_validation_f1 = -1.0
-
+    best_f1 = -1
     best_state = None
-
     best_epoch = 0
+    patience_count = 0
 
-    epochs_without_improvement = 0
+    print("\nTraining GNN...")
 
-    for epoch in range(
-        1,
-        MAX_EPOCHS + 1,
-    ):
+    for epoch in range(1, MAX_EPOCHS + 1):
 
         model.train()
 
@@ -705,7 +433,7 @@ def main() -> None:
         logits, _ = model(
             features,
             edge_index,
-            normalized_edge_weight,
+            edge_weight,
         )
 
         loss = criterion(
@@ -714,56 +442,31 @@ def main() -> None:
         )
 
         loss.backward()
-
         optimizer.step()
 
-        # ----------------------------------------------------
-        # Validation
-        # ----------------------------------------------------
-
-        (
-            validation_metrics,
-            _,
-            _,
-            _,
-        ) = evaluate_model(
+        validation_metrics, _, _, _ = evaluate(
             model,
             features,
             edge_index,
-            normalized_edge_weight,
+            edge_weight,
             labels,
             validation_mask,
         )
 
-        validation_f1 = (
-            validation_metrics["f1"]
-        )
+        val_f1 = validation_metrics["f1"]
 
         print(
-            f"Epoch "
-            f"{epoch:02d}/{MAX_EPOCHS} | "
+            f"Epoch {epoch:02d} | "
             f"Loss: {loss.item():.4f} | "
-            f"Val F1: "
-            f"{validation_f1:.4f} | "
-            f"Val Recall: "
-            f"{validation_metrics['recall']:.4f}"
+            f"Val F1: {val_f1:.4f}"
         )
 
-        # ----------------------------------------------------
-        # BEST MODEL
-        # ----------------------------------------------------
+        # Save the best model.
+        if val_f1 > best_f1:
 
-        if validation_f1 > (
-            best_validation_f1
-        ):
-
-            best_validation_f1 = (
-                validation_f1
-            )
-
+            best_f1 = val_f1
             best_epoch = epoch
-
-            epochs_without_improvement = 0
+            patience_count = 0
 
             best_state = {
                 key: value.detach()
@@ -775,130 +478,88 @@ def main() -> None:
 
         else:
 
-            epochs_without_improvement += 1
+            patience_count += 1
 
-            if (
-                epochs_without_improvement
-                >= PATIENCE
-            ):
+            if patience_count >= PATIENCE:
 
-                print(
-                    "\nEarly stopping."
-                )
-
+                print("\nEarly stopping.")
                 break
 
-    # ========================================================
-    # RESTORE BEST MODEL
-    # ========================================================
-
-    if best_state is None:
-
-        raise RuntimeError(
-            "Training failed to produce "
-            "a valid model."
-        )
-
-    model.load_state_dict(
-        best_state
-    )
-
+    # Restore best model.
+    model.load_state_dict(best_state)
     model.to(device)
 
     print(
-        f"\nBest epoch: "
-        f"{best_epoch}"
+        f"\nBest epoch: {best_epoch}"
     )
 
-    print(
-        f"Best validation F1: "
-        f"{best_validation_f1:.4f}"
-    )
-
-    # ========================================================
-    # TEST
-    # ========================================================
-
-    print("\n" + "=" * 70)
-    print("FINAL TEST RESULTS")
-    print("=" * 70)
+    # --------------------------------------------------
+    # Test the final model.
+    # --------------------------------------------------
 
     (
         test_metrics,
         predictions,
         probabilities,
         embeddings,
-    ) = evaluate_model(
+    ) = evaluate(
         model,
         features,
         edge_index,
-        normalized_edge_weight,
+        edge_weight,
         labels,
         test_mask,
     )
 
+    print("\n" + "=" * 60)
+    print("FINAL TEST RESULTS")
+    print("=" * 60)
+
     print(
-        f"\nAccuracy : "
-        f"{test_metrics['accuracy']:.4f}"
+        f"Accuracy : {test_metrics['accuracy']:.4f}"
     )
 
     print(
-        f"Precision: "
-        f"{test_metrics['precision']:.4f}"
+        f"Precision: {test_metrics['precision']:.4f}"
     )
 
     print(
-        f"Recall   : "
-        f"{test_metrics['recall']:.4f}"
+        f"Recall   : {test_metrics['recall']:.4f}"
     )
 
     print(
-        f"F1 Score : "
-        f"{test_metrics['f1']:.4f}"
+        f"F1 Score : {test_metrics['f1']:.4f}"
     )
 
-    if test_metrics[
-        "roc_auc"
-    ] is not None:
+    print(
+        f"ROC-AUC  : {test_metrics['roc_auc']:.4f}"
+    )
 
-        print(
-            f"ROC-AUC  : "
-            f"{test_metrics['roc_auc']:.4f}"
-        )
-
-    # ========================================================
-    # CONFUSION MATRIX
-    # ========================================================
-
+    # Confusion matrix.
     y_test = labels[
         test_mask
     ].cpu().numpy()
 
-    y_prediction = predictions[
+    y_pred = predictions[
         test_mask
     ].cpu().numpy()
 
     confusion = confusion_matrix(
         y_test,
-        y_prediction,
+        y_pred,
     )
 
     print("\nConfusion Matrix:")
-
     print(confusion)
 
-    # ========================================================
-    # SAVE ARTIFACTS
-    # ========================================================
+    # --------------------------------------------------
+    # Save model and supporting files.
+    # --------------------------------------------------
 
     MODEL_DIR.mkdir(
         parents=True,
         exist_ok=True,
     )
-
-    # --------------------------------------------------------
-    # Model checkpoint
-    # --------------------------------------------------------
 
     checkpoint = {
         "model_state_dict":
@@ -911,22 +572,16 @@ def main() -> None:
             HIDDEN_DIM,
 
         "num_classes":
-            NUM_CLASSES,
+            2,
 
         "dropout":
             DROPOUT,
-
-        "feature_names":
-            preprocessor.feature_names_,
 
         "best_epoch":
             best_epoch,
 
         "validation_f1":
-            best_validation_f1,
-
-        "random_seed":
-            RANDOM_SEED,
+            best_f1,
     }
 
     torch.save(
@@ -934,37 +589,18 @@ def main() -> None:
         MODEL_PATH,
     )
 
-    print(
-        f"\nSaved GNN model:"
-        f"\n{MODEL_PATH}"
-    )
-
-    # --------------------------------------------------------
-    # Preprocessor
-    # --------------------------------------------------------
-
     joblib.dump(
         preprocessor,
         PREPROCESSOR_PATH,
     )
 
-    print(
-        f"\nSaved preprocessor:"
-        f"\n{PREPROCESSOR_PATH}"
-    )
-
-    # --------------------------------------------------------
-    # Reference transactions
-    # --------------------------------------------------------
-
+    # Save transaction references.
     reference_df = df.copy()
 
     reference_df.insert(
         0,
         "gnn_node_index",
-        np.arange(
-            len(reference_df)
-        ),
+        np.arange(len(df)),
     )
 
     reference_df.to_csv(
@@ -972,25 +608,14 @@ def main() -> None:
         index=False,
     )
 
-    print(
-        f"\nSaved reference data:"
-        f"\n{REFERENCE_PATH}"
-    )
-
-    # --------------------------------------------------------
-    # Embeddings
-    # --------------------------------------------------------
-
+    # Save embeddings.
     embeddings_np = (
-        embeddings
-        .detach()
-        .cpu()
-        .numpy()
+        embeddings.cpu().numpy()
     )
 
     embedding_columns = [
-        f"embedding_{index}"
-        for index in range(
+        f"embedding_{i}"
+        for i in range(
             embeddings_np.shape[1]
         )
     ]
@@ -1003,64 +628,29 @@ def main() -> None:
     embeddings_df.insert(
         0,
         "gnn_node_index",
-        np.arange(
-            len(embeddings_df)
-        ),
+        np.arange(len(df)),
     )
 
-    embeddings_df[
-        "is_fraud"
-    ] = labels_np
+    embeddings_df["is_fraud"] = labels_np
 
     embeddings_df.to_csv(
         EMBEDDINGS_PATH,
         index=False,
     )
 
-    print(
-        f"\nSaved embeddings:"
-        f"\n{EMBEDDINGS_PATH}"
-    )
-
-    # --------------------------------------------------------
-    # Metrics
-    # --------------------------------------------------------
-
+    # Save metrics.
     metrics = {
-        "dataset": str(
-            dataset_path
-        ),
-
-        "num_transactions":
-            num_nodes,
-
+        "dataset": str(dataset_path),
+        "num_transactions": num_nodes,
         "num_features":
             preprocessor.input_dim,
-
-        "hidden_dim":
-            HIDDEN_DIM,
-
-        "dropout":
-            DROPOUT,
-
-        "learning_rate":
-            LEARNING_RATE,
-
-        "weight_decay":
-            WEIGHT_DECAY,
-
-        "best_epoch":
-            best_epoch,
-
-        "validation_f1":
-            best_validation_f1,
-
-        "graph":
-            graph_stats,
-
-        "test_metrics":
-            test_metrics,
-
+        "hidden_dim": HIDDEN_DIM,
+        "dropout": DROPOUT,
+        "learning_rate": LEARNING_RATE,
+        "best_epoch": best_epoch,
+        "validation_f1": best_f1,
+        "graph": graph_stats,
+        "test_metrics": test_metrics,
         "confusion_matrix":
             confusion.tolist(),
     }
@@ -1077,59 +667,17 @@ def main() -> None:
             indent=4,
         )
 
-    print(
-        f"\nSaved metrics:"
-        f"\n{METRICS_PATH}"
-    )
-
-    # ========================================================
-    # COMPLETE
-    # ========================================================
-
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 60)
     print("GNN TRAINING COMPLETE")
-    print("=" * 70)
+    print("=" * 60)
 
-    print(
-        f"\nTest F1: "
-        f"{test_metrics['f1']:.4f}"
-    )
+    print("\nCreated files:")
+    print("models/gnn_model.pt")
+    print("models/gnn_preprocessor.joblib")
+    print("models/gnn_reference.csv")
+    print("models/gnn_embeddings.csv")
+    print("models/gnn_metrics.json")
 
-    if test_metrics[
-        "roc_auc"
-    ] is not None:
-
-        print(
-            f"Test ROC-AUC: "
-            f"{test_metrics['roc_auc']:.4f}"
-        )
-
-    print("\nArtifacts created:")
-
-    print(
-        "  models/gnn_model.pt"
-    )
-
-    print(
-        "  models/gnn_preprocessor.joblib"
-    )
-
-    print(
-        "  models/gnn_reference.csv"
-    )
-
-    print(
-        "  models/gnn_embeddings.csv"
-    )
-
-    print(
-        "  models/gnn_metrics.json"
-    )
-
-
-# ============================================================
-# ENTRY POINT
-# ============================================================
 
 if __name__ == "__main__":
     main()
