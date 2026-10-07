@@ -1,33 +1,5 @@
-Project-specific pipeline:
-
-    fraud_dataset.csv
-            |
-            v
-    TransactionFeaturePreprocessor
-            |
-            v
-    Transaction Features
-            |
-            v
-    Transaction Graph
-            |
-            v
-       Trained GCN
-            |
-            v
-    64-Dimensional Embeddings
-            |
-            v
-    models/gnn_embeddings.csv
-
-Each row in the output represents one UPI transaction.
-
-The embedding captures information learned from:
-    - transaction features
-    - shared users
-    - shared merchants
-    - shared devices
-    - neighboring transactions
+"""
+Generate GNN embeddings for the UPI Fraud Detection System.
 """
 
 from pathlib import Path
@@ -37,35 +9,20 @@ import numpy as np
 import pandas as pd
 import torch
 
-from gnn.preprocessing import (
-    TransactionFeaturePreprocessor,
-)
-
+from gnn.preprocessing import TransactionFeaturePreprocessor
 from gnn.graph_builder import (
     build_transaction_graph,
     normalize_edge_weights,
 )
-
-from gnn.gnn_model import (
-    GCNClassifier,
-)
-
-PROJECT_ROOT = Path(
-    __file__
-).resolve().parents[1]
+from gnn.gnn_model import GCNClassifier
 
 
-# Dataset inside the GNN branch.
-DATA_PATH = (
-    PROJECT_ROOT
-    / "data"
-    / "raw"
-    / "fraud_dataset.csv"
-)
+# Project paths
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
+DATA_PATH = PROJECT_ROOT / "data" / "raw" / "fraud_dataset.csv"
 
-# Fallback to the original project dataset.
-ORIGINAL_PROJECT_DATA_PATH = (
+ORIGINAL_DATA_PATH = (
     PROJECT_ROOT.parent
     / "UPI-Fraud-Detection-System"
     / "data"
@@ -73,86 +30,38 @@ ORIGINAL_PROJECT_DATA_PATH = (
     / "fraud_dataset.csv"
 )
 
+MODEL_PATH = PROJECT_ROOT / "models" / "gnn_model.pt"
 
-# Trained GNN model.
-MODEL_PATH = (
-    PROJECT_ROOT
-    / "models"
-    / "gnn_model.pt"
-)
-
-
-# Saved preprocessing pipeline.
 PREPROCESSOR_PATH = (
-    PROJECT_ROOT
-    / "models"
-    / "gnn_preprocessor.joblib"
+    PROJECT_ROOT / "models" / "gnn_preprocessor.joblib"
 )
 
-
-# Output embedding file.
 EMBEDDINGS_PATH = (
-    PROJECT_ROOT
-    / "models"
-    / "gnn_embeddings.csv"
+    PROJECT_ROOT / "models" / "gnn_embeddings.csv"
 )
 
 
-# ============================================================
-# DATASET LOCATION
-# ============================================================
-
-def get_dataset_path() -> Path:
-    """
-    Locate the fraud dataset.
-
-    First checks the GNN branch.
-
-    If it is not present there, checks the original
-    UPI Fraud Detection project.
-    """
+def get_dataset_path():
+    """Find the fraud dataset."""
 
     if DATA_PATH.exists():
         return DATA_PATH
 
-    if ORIGINAL_PROJECT_DATA_PATH.exists():
-        return ORIGINAL_PROJECT_DATA_PATH
+    if ORIGINAL_DATA_PATH.exists():
+        return ORIGINAL_DATA_PATH
 
     raise FileNotFoundError(
-        "\nUPI fraud dataset was not found.\n\n"
-        f"Checked:\n"
-        f"1. {DATA_PATH}\n"
-        f"2. {ORIGINAL_PROJECT_DATA_PATH}\n\n"
-        "Expected file:\n"
-        "fraud_dataset.csv"
+        "fraud_dataset.csv was not found."
     )
 
 
-# ============================================================
-# LOAD TRAINED MODEL
-# ============================================================
-
-def load_gnn_model(
-    device: torch.device,
-):
-    """
-    Load the trained GCN model from the checkpoint.
-
-    The checkpoint created by train_gnn.py contains:
-        - model_state_dict
-        - input_dim
-        - hidden_dim
-        - num_classes
-        - dropout
-    """
+def load_gnn_model(device):
+    """Load the trained GNN model."""
 
     if not MODEL_PATH.exists():
-
         raise FileNotFoundError(
-            "\nTrained GNN model not found:\n"
-            f"{MODEL_PATH}\n\n"
-            "Train the GNN first using:\n"
-            "python -m gnn.train_gnn"
+            "GNN model not found. "
+            "Run: python -m gnn.train_gnn"
         )
 
     checkpoint = torch.load(
@@ -162,134 +71,46 @@ def load_gnn_model(
     )
 
     model = GCNClassifier(
-        input_dim=checkpoint[
-            "input_dim"
-        ],
-        hidden_dim=checkpoint[
-            "hidden_dim"
-        ],
-        num_classes=checkpoint[
-            "num_classes"
-        ],
-        dropout=checkpoint[
-            "dropout"
-        ],
+        input_dim=checkpoint["input_dim"],
+        hidden_dim=checkpoint["hidden_dim"],
+        num_classes=checkpoint["num_classes"],
+        dropout=checkpoint["dropout"],
     )
 
     model.load_state_dict(
-        checkpoint[
-            "model_state_dict"
-        ]
+        checkpoint["model_state_dict"]
     )
 
-    model = model.to(device)
-
+    model.to(device)
     model.eval()
-
-    print(
-        "\nGNN model loaded successfully."
-    )
-
-    print(
-        f"Input features: "
-        f"{checkpoint['input_dim']}"
-    )
-
-    print(
-        f"Hidden dimension: "
-        f"{checkpoint['hidden_dim']}"
-    )
-
-    print(
-        f"Output classes: "
-        f"{checkpoint['num_classes']}"
-    )
 
     return model
 
 
-# ============================================================
-# LOAD PREPROCESSOR
-# ============================================================
-
 def load_preprocessor():
-    """
-    Load the preprocessing pipeline that was fitted
-    during GNN training.
-    """
+    """Load the preprocessing pipeline."""
 
     if not PREPROCESSOR_PATH.exists():
-
         raise FileNotFoundError(
-            "\nGNN preprocessor not found:\n"
-            f"{PREPROCESSOR_PATH}\n\n"
-            "Train the GNN first using:\n"
-            "python -m gnn.train_gnn"
+            "GNN preprocessor not found. "
+            "Run: python -m gnn.train_gnn"
         )
 
-    preprocessor = joblib.load(
+    return joblib.load(
         PREPROCESSOR_PATH
     )
 
-    print(
-        "\nGNN preprocessor loaded."
-    )
-
-    print(
-        f"Input features: "
-        f"{preprocessor.input_dim}"
-    )
-
-    return preprocessor
-
-
-# ============================================================
-# GENERATE EMBEDDINGS
-# ============================================================
 
 def generate_embeddings(
-    df: pd.DataFrame,
-    preprocessor: TransactionFeaturePreprocessor,
-    model: GCNClassifier,
-    device: torch.device,
-) -> np.ndarray:
-    """
-    Generate one GNN embedding for every transaction.
+    df,
+    preprocessor,
+    model,
+    device,
+):
+    """Generate one embedding for each transaction."""
 
-    Parameters
-    ----------
-    df:
-        UPI transaction dataframe.
-
-    preprocessor:
-        Fitted TransactionFeaturePreprocessor.
-
-    model:
-        Trained GCNClassifier.
-
-    device:
-        CPU or CUDA device.
-
-    Returns
-    -------
-    np.ndarray
-        Shape:
-
-            number_of_transactions x embedding_dimension
-    """
-
-    print(
-        "\nPreparing transaction features..."
-    )
-
-    features_np = (
-        preprocessor.transform(df)
-    )
-
-    print(
-        f"Feature matrix shape: "
-        f"{features_np.shape}"
-    )
+    # Convert transactions into model features.
+    features_np = preprocessor.transform(df)
 
     features = torch.tensor(
         features_np,
@@ -297,207 +118,88 @@ def generate_embeddings(
         device=device,
     )
 
-    # --------------------------------------------------------
-    # Build the same transaction graph used during training.
-    #
-    # Transactions are connected through:
-    #   user_id
-    #   merchant_id
-    #   device_id
-    # --------------------------------------------------------
-
-    print(
-        "\nBuilding transaction graph..."
-    )
-
-    (
-        edge_index,
-        edge_weight,
-        graph_stats,
-    ) = build_transaction_graph(
-        df
+    # Build the transaction graph.
+    edge_index, edge_weight, stats = (
+        build_transaction_graph(df)
     )
 
     print(
-        f"Graph nodes: "
-        f"{graph_stats['num_nodes']}"
-    )
-
-    print(
-        f"Unique relationships: "
-        f"{graph_stats['num_unique_undirected_relationships']}"
+        f"Graph nodes: {stats['num_nodes']}"
     )
 
     print(
         f"Graph edges: "
-        f"{graph_stats['num_edges_including_self_loops']}"
+        f"{stats['num_edges_including_self_loops']}"
     )
 
-    # --------------------------------------------------------
     # Normalize graph weights.
-    # --------------------------------------------------------
-
-    normalized_edge_weight = (
-        normalize_edge_weights(
-            edge_index,
-            edge_weight,
-            num_nodes=len(df),
-        )
+    edge_weight = normalize_edge_weights(
+        edge_index,
+        edge_weight,
+        len(df),
     )
 
-    edge_index = edge_index.to(
-        device
-    )
+    edge_index = edge_index.to(device)
+    edge_weight = edge_weight.to(device)
 
-    normalized_edge_weight = (
-        normalized_edge_weight.to(
-            device
-        )
-    )
-
-    # --------------------------------------------------------
-    # Run GCN.
-    # --------------------------------------------------------
-
-    print(
-        "\nGenerating GNN embeddings..."
-    )
-
-    model.eval()
-
+    # Generate embeddings.
     with torch.no_grad():
 
-        _logits, embeddings = model(
+        _, embeddings = model(
             features,
             edge_index,
-            normalized_edge_weight,
+            edge_weight,
         )
 
-    embeddings_np = (
-        embeddings
-        .cpu()
-        .numpy()
-    )
-
-    print(
-        f"Embedding matrix shape: "
-        f"{embeddings_np.shape}"
-    )
-
-    return embeddings_np
+    return embeddings.cpu().numpy()
 
 
-# ============================================================
-# SAVE EMBEDDINGS
-# ============================================================
-
-def save_embeddings(
-    df: pd.DataFrame,
-    embeddings: np.ndarray,
-) -> None:
-    """
-    Save transaction embeddings to CSV.
-
-    Output columns:
-
-        gnn_node_index
-        embedding_0
-        embedding_1
-        ...
-        embedding_63
-        is_fraud
-
-    Original transaction identifiers are also retained
-    when available.
-    """
-
-    MODEL_PATH.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    embedding_dimension = (
-        embeddings.shape[1]
-    )
+def save_embeddings(df, embeddings):
+    """Save GNN embeddings to CSV."""
 
     embedding_columns = [
-        f"embedding_{index}"
-        for index in range(
-            embedding_dimension
-        )
+        f"embedding_{i}"
+        for i in range(embeddings.shape[1])
     ]
 
-    embeddings_df = pd.DataFrame(
+    embedding_df = pd.DataFrame(
         embeddings,
         columns=embedding_columns,
     )
 
-    # --------------------------------------------------------
-    # Preserve transaction identifiers.
-    # --------------------------------------------------------
+    # Keep transaction identifiers.
+    output_df = pd.DataFrame()
 
-    identifier_columns = [
+    for column in [
         "transaction_id",
         "user_id",
         "merchant_id",
         "device_id",
-    ]
-
-    available_identifiers = [
-        column
-        for column in identifier_columns
-        if column in df.columns
-    ]
-
-    output_df = pd.DataFrame()
-
-    for column in available_identifiers:
-
-        output_df[column] = (
-            df[column].values
-        )
-
-    # --------------------------------------------------------
-    # GNN node index.
-    # --------------------------------------------------------
+    ]:
+        if column in df.columns:
+            output_df[column] = df[column].values
 
     output_df.insert(
         0,
         "gnn_node_index",
-        np.arange(
-            len(df)
-        ),
+        np.arange(len(df)),
     )
 
-    # --------------------------------------------------------
-    # Add embeddings.
-    # --------------------------------------------------------
-
     output_df = pd.concat(
-        [
-            output_df,
-            embeddings_df,
-        ],
+        [output_df, embedding_df],
         axis=1,
     )
 
-    # --------------------------------------------------------
-    # Add target for analysis/evaluation.
-    #
-    # This target is NOT used to generate embeddings.
-    # --------------------------------------------------------
-
+    # Keep fraud label only for analysis.
     if "is_fraud" in df.columns:
-
-        output_df[
-            "is_fraud"
-        ] = df[
+        output_df["is_fraud"] = df[
             "is_fraud"
         ].values
 
-    # --------------------------------------------------------
-    # Save.
-    # --------------------------------------------------------
+    EMBEDDINGS_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     output_df.to_csv(
         EMBEDDINGS_PATH,
@@ -505,66 +207,40 @@ def save_embeddings(
     )
 
     print(
-        "\nEmbeddings saved successfully:"
+        f"\nEmbeddings saved to:\n"
+        f"{EMBEDDINGS_PATH}"
     )
 
     print(
-        EMBEDDINGS_PATH
+        f"Rows: {len(output_df)}"
     )
 
     print(
-        f"\nRows: "
-        f"{len(output_df)}"
-    )
-
-    print(
-        f"Embedding dimensions: "
-        f"{embedding_dimension}"
+        f"Embedding size: "
+        f"{embeddings.shape[1]}"
     )
 
 
-# ============================================================
-# MAIN
-# ============================================================
+def main():
 
-def main() -> None:
-    """
-    Complete embedding generation pipeline.
-    """
+    print("=" * 60)
+    print("GNN EMBEDDING GENERATION")
+    print("=" * 60)
 
-    print("=" * 70)
-
-    print(
-        "UPI FRAUD DETECTION - GNN EMBEDDING GENERATION"
-    )
-
-    print("=" * 70)
-
-    # --------------------------------------------------------
-    # Device
-    # --------------------------------------------------------
-
+    # Use GPU if available.
     device = torch.device(
         "cuda"
         if torch.cuda.is_available()
         else "cpu"
     )
 
-    print(
-        f"\nDevice: {device}"
-    )
+    print(f"\nDevice: {device}")
 
-    # --------------------------------------------------------
-    # Dataset
-    # --------------------------------------------------------
-
-    dataset_path = (
-        get_dataset_path()
-    )
+    # Load dataset.
+    dataset_path = get_dataset_path()
 
     print(
-        f"\nDataset:"
-        f"\n{dataset_path}"
+        f"\nDataset:\n{dataset_path}"
     )
 
     df = pd.read_csv(
@@ -572,87 +248,51 @@ def main() -> None:
     )
 
     print(
-        f"\nDataset shape: "
-        f"{df.shape}"
+        f"Dataset shape: {df.shape}"
     )
 
-    # --------------------------------------------------------
-    # Validate required graph columns.
-    # --------------------------------------------------------
-
+    # Required graph columns.
     required_columns = [
         "user_id",
         "merchant_id",
         "device_id",
     ]
 
-    missing_columns = [
+    missing = [
         column
         for column in required_columns
         if column not in df.columns
     ]
 
-    if missing_columns:
-
+    if missing:
         raise ValueError(
-            "Required graph columns are missing:\n"
-            + "\n".join(
-                missing_columns
-            )
+            "Missing columns: "
+            + ", ".join(missing)
         )
 
-    # --------------------------------------------------------
-    # Load trained artifacts.
-    # --------------------------------------------------------
-
-    preprocessor = (
-        load_preprocessor()
-    )
+    # Load trained GNN components.
+    preprocessor = load_preprocessor()
 
     model = load_gnn_model(
         device
     )
 
-    # --------------------------------------------------------
     # Generate embeddings.
-    # --------------------------------------------------------
-
-    embeddings = (
-        generate_embeddings(
-            df=df,
-            preprocessor=preprocessor,
-            model=model,
-            device=device,
-        )
+    embeddings = generate_embeddings(
+        df,
+        preprocessor,
+        model,
+        device,
     )
 
-    # --------------------------------------------------------
     # Save embeddings.
-    # --------------------------------------------------------
-
     save_embeddings(
-        df=df,
-        embeddings=embeddings,
-    )
-
-    # --------------------------------------------------------
-    # Final message.
-    # --------------------------------------------------------
-
-    print("\n" + "=" * 70)
-
-    print(
-        "GNN EMBEDDING GENERATION COMPLETE"
-    )
-
-    print("=" * 70)
-
-    print(
-        "\nOutput:"
+        df,
+        embeddings,
     )
 
     print(
-        "models/gnn_embeddings.csv"
+        "\nGNN embedding generation complete."
     )
 
 
